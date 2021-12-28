@@ -80,11 +80,6 @@ fun MainPage() {
                         roomId = it.arguments?.getString("roomId")!!
                     )
                 }
-                composable("rooms/create") {
-                    RoomEditor(
-                        navController = navController,
-                    )
-                }
                 composable("signup") {
                     SignUpPage(
                         navController = navController,

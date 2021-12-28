@@ -1,44 +1,72 @@
 package net.pantasystem.imagesiritori.ui.pages
 
+import android.util.Log
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import net.pantasystem.imagesiritori.asFlow
+import net.pantasystem.imagesiritori.asSuspend
 import net.pantasystem.imagesiritori.models.Account
 import net.pantasystem.imagesiritori.models.Member
 import net.pantasystem.imagesiritori.models.Post
+import net.pantasystem.imagesiritori.models.Room
+import net.pantasystem.imagesiritori.models.dto.PostFireDTO
+import net.pantasystem.imagesiritori.models.dto.RoomFireDTO
 import net.pantasystem.imagesiritori.ui.components.AvatarAndPointIcon
 import net.pantasystem.imagesiritori.ui.components.PostCard
 
+@ExperimentalCoroutinesApi
 @Composable
 fun RoomPage(navController: NavController, roomId: String) {
 
-    val accounts = listOf(
-        Account("", "hogehoge", "https://pbs.twimg.com/profile_images/1317853360364515364/OIaBg_it_400x400.jpg"),
-        Account("", "piyopiyo", "https://pbs.twimg.com/profile_images/1317853360364515364/OIaBg_it_400x400.jpg"),
-        Account("", "fugafuga", "https://pbs.twimg.com/profile_images/1317853360364515364/OIaBg_it_400x400.jpg")
-    )
+    val roomRef = Firebase.firestore
+        .collection("rooms")
+        .document(roomId)
+    val room = roomRef
+        .asFlow()
+        .map {
+            it?.toObject(RoomFireDTO::class.java)
+        }.filterNotNull().map {
+            Room(
+                id = it.id,
+                owner = it.owner!!.get().asSuspend().toObject(Account::class.java)!!,
+                accounts = it.accounts!!.map { ref ->
+                    ref.get()
+                        .asSuspend()
+                }.map { snapshot ->
+                    snapshot.toObject(Account::class.java)!!
+                }
+            )
+        }.collectAsState(initial = null)
 
-    val posts = listOf(
-        Post("", "hogehoge", "https://pbs.twimg.com/media/FHcItt5aQAErBLb?format=jpg&name=large", accounts[0]),
-        Post("", "hogehoge", "https://pbs.twimg.com/media/FHcItt5aQAErBLb?format=jpg&name=large", accounts[0]),
-        Post("", "hogehoge", "https://pbs.twimg.com/media/FHcItt5aQAErBLb?format=jpg&name=large", accounts[1]),
-        Post("", "hogehoge", "https://pbs.twimg.com/media/FHcItt5aQAErBLb?format=jpg&name=large", accounts[2]),
-    )
-
-    val members = posts.groupBy {
-        it.account
-    }.map {
-        Member(
-            it.key,
-            it.value.size
-        )
-    }.sortedBy {
-        it.point
-    }.reversed()
+    val posts = roomRef.collection("posts")
+        .asFlow()
+        .map {
+            it.toObjects(PostFireDTO::class.java)
+        }.map {
+            it.map { dto ->
+                Post(
+                    dto.id,
+                    account = dto.account.get().asSuspend().toObject(Account::class.java)!!,
+                    imageUrl = dto.imageUrl,
+                    word = dto.word
+                )
+            }
+        }.collectAsState(initial = null)
 
 
 
@@ -60,18 +88,48 @@ fun RoomPage(navController: NavController, roomId: String) {
             )
         }
     ) {
+        if(room.value == null || posts.value == null) {
+            CircularProgressIndicator()
+        }else{
+            RoomContent(room = room.value!!, posts.value!!)
+        }
 
-        Row() {
-            LazyColumn(
-            ) {
-                items(members.size) { index ->
-                    AvatarAndPointIcon(member = members[index])
-                }
+    }
+}
+
+@Composable
+fun RoomContent(room: Room, posts: List<Post>) {
+    val accounts = room.accounts
+
+
+    Log.d("RoomContent","posts:$posts, room:$room")
+
+    val mem = posts.groupBy {
+        it.account
+    }
+    val members = accounts.map {
+        Member(
+            it,
+            point = mem[it]?.size ?: 0
+        )
+    }.sortedBy {
+        it.point
+    }.reversed()
+
+    Row {
+        LazyColumn(
+            Modifier.width(72.dp)
+                .fillMaxHeight()
+        ) {
+            items(members.size) { index ->
+                AvatarAndPointIcon(member = members[index])
             }
-            LazyColumn() {
-                items(posts.size) { index ->
-                    PostCard(post = posts[index])
-                }
+        }
+        LazyColumn(
+            Modifier.fillMaxHeight()
+        ) {
+            items(posts.size) { index ->
+                PostCard(post = posts[index])
             }
         }
     }
