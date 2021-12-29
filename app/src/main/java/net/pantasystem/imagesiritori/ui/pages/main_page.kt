@@ -11,6 +11,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import net.pantasystem.imagesiritori.models.repositories.RepositoryFactory
+import net.pantasystem.imagesiritori.models.repositories.dao.RepositoryFactoryImpl
 import net.pantasystem.imagesiritori.models.store.AccountState
 
 @ExperimentalCoroutinesApi
@@ -20,6 +22,8 @@ fun MainPage() {
     var accountState: AccountState by remember {
         mutableStateOf(AccountState.Loading)
     }
+
+    val repositoryFactory: RepositoryFactory = RepositoryFactoryImpl()
 
 
     DisposableEffect(key1 = null) {
@@ -76,7 +80,8 @@ fun MainPage() {
                 ) {
                     PostEditor(
                         navController = navController,
-                        roomId = it.arguments?.getString("roomId")!!
+                        repositoryFactory = repositoryFactory,
+                        roomId = it.arguments?.getString("roomId")!!,
                     )
                 }
                 composable("signup") {
