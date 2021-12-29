@@ -26,10 +26,16 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import coil.compose.rememberImagePainter
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.ktx.functions
+import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import net.pantasystem.imagesiritori.asSuspend
 import net.pantasystem.imagesiritori.models.repositories.RepositoryFactory
+import net.pantasystem.imagesiritori.models.request.RequestAnnotateImage
 import net.pantasystem.imagesiritori.utils.AppState
 import net.pantasystem.imagesiritori.utils.StateContent
 import net.pantasystem.imagesiritori.utils.getFileName
@@ -58,6 +64,45 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
         mutableStateOf(AppState.Fixed(StateContent.NotExist()))
     }
 
+    suspend fun loadWordSuggestion(uri: Uri) {
+        wordSuggestionState = AppState.Loading(wordSuggestionState.content)
+        runCatching {
+            val req = RequestAnnotateImage(
+                image = RequestAnnotateImage.Image(
+                    RequestAnnotateImage.ImageSource(
+                        uri.toString()
+                    )
+                ),
+                features = listOf(
+                    RequestAnnotateImage.Feature(
+                        type = "TEXT_DETECTION"
+                    )
+                ),
+                imageContext = RequestAnnotateImage.ImageContext(
+                    languageHints = listOf("ja")
+                )
+            )
+
+            //Firebase.functions.getHttpsCallable("helloWorld").call()
+            val json = Json.encodeToString(
+                req
+            )
+            Log.d("json", "json:$json")
+            Firebase.functions.getHttpsCallable("annotationImage")
+                .call(json).addOnSuccessListener {
+                    Log.d("PostEditor", "success:${it.data}")
+
+                }.addOnFailureListener {
+                    Log.d("PostEditor", "failure, msg:${it.message}", it)
+                    wordSuggestionState = AppState.Error(wordSuggestionState.content, throwable = it)
+                }
+            //Log.d("PostEditor", "response:${res.data}")
+
+            //res.data
+            //Log.d("json", req.toString())
+        }
+    }
+
     suspend fun uploadImage(uri: Uri) {
         val fileName = context.getFileName(uri)
 
@@ -71,6 +116,7 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
         val url = ref.downloadUrl.asSuspend()
         imageUrl = url
         Log.d("PostEditorPage", "imageUrl:$imageUrl")
+        loadWordSuggestion(url)
     }
 
     val openImageFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -80,6 +126,7 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
             }
         }
     }
+    // success:[{cropHintsAnnotation=null, safeSearchAnnotation=null, faceAnnotations=[], landmarkAnnotations=[], logoAnnotations=[], localizedObjectAnnotations=[], error={code=3, details=[], message=Invalid GCS path specified: https://firebasestorage.googleapis.com/v0/b/imagesiritori.appspot.com/o/2S8Nixbu5T2DPiCGzclJ%2F7rRBJDr7NZPdPV5pA5P78r8aFq13%2FIMG_20211219_215340.jpg?alt=media&token=c8e42564-a8e8-432e-9b1d-9fc8e58be5ba}, productSearchResults=null, webDetection=null, fullTextAnnotation=null, context=null, textAnnotations=[], labelAnnotations=[], imagePropertiesAnnotation=null}]
     val requestReadExternalStorage = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         openImageFile.launch(arrayOf("image/*"))
     }
@@ -112,7 +159,9 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
             }
             return@Scaffold
         }
-        LazyColumn {
+        LazyColumn(
+            Modifier.padding(8.dp)
+        ) {
             item {
                 Text("前のワード")
                 Text(posts.value?.firstOrNull()?.word ?: "", fontSize = 18.sp)
@@ -204,9 +253,4 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
 
         }
     }
-}
-
-@Composable
-fun LazyListScope.SuggestionWord() {
-
 }
