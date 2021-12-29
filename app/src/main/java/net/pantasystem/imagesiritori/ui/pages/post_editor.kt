@@ -3,7 +3,10 @@ package net.pantasystem.imagesiritori.ui.pages
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.res.Resources
+import android.graphics.Bitmap
 import android.net.Uri
+import android.provider.MediaStore
+import android.util.Base64
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,14 +34,17 @@ import com.google.firebase.functions.ktx.functions
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.pantasystem.imagesiritori.asSuspend
 import net.pantasystem.imagesiritori.models.repositories.RepositoryFactory
 import net.pantasystem.imagesiritori.models.request.RequestAnnotateImage
+import net.pantasystem.imagesiritori.models.response.AnnotateImageResponse
 import net.pantasystem.imagesiritori.utils.AppState
 import net.pantasystem.imagesiritori.utils.StateContent
 import net.pantasystem.imagesiritori.utils.getFileName
+import java.io.ByteArrayOutputStream
 
 
 @Composable
@@ -67,15 +73,20 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
     suspend fun loadWordSuggestion(uri: Uri) {
         wordSuggestionState = AppState.Loading(wordSuggestionState.content)
         runCatching {
+            val bitmap = MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            val scaleDownedBitmap = scaleBitmapDown(bitmap, 1024)
+            val byteArrayOutputStream = ByteArrayOutputStream()
+            scaleDownedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, byteArrayOutputStream)
+            val imageBytes = byteArrayOutputStream.toByteArray()
+            val base64encoded = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
             val req = RequestAnnotateImage(
                 image = RequestAnnotateImage.Image(
-                    RequestAnnotateImage.ImageSource(
-                        uri.toString()
-                    )
+                    source = null,
+                    content = base64encoded
                 ),
                 features = listOf(
                     RequestAnnotateImage.Feature(
-                        type = "TEXT_DETECTION"
+                        type = "OBJECT_LOCALIZATION"
                     )
                 ),
                 imageContext = RequestAnnotateImage.ImageContext(
@@ -89,8 +100,22 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
             )
             Log.d("json", "json:$json")
             Firebase.functions.getHttpsCallable("annotationImage")
-                .call(json).addOnSuccessListener {
-                    Log.d("PostEditor", "success:${it.data}")
+                .call(json).addOnSuccessListener { result ->
+                    Log.d("PostEditor", "success, type:${result.data!!::class.java}, ${result.data}")
+                    val responseWords = (result.data as ArrayList<*>).mapNotNull {
+                        it as HashMap<*, *>?
+                    }.map {
+                        it["localizedObjectAnnotations"] as ArrayList<*>
+                    }.map {
+                        it.mapNotNull { i ->
+                            i as HashMap<*, *>?
+                        }.map { localized ->
+                            localized["name"] as String
+                        }
+                    }.flatten()
+                    wordSuggestionState = AppState.Fixed(
+                        StateContent.Exist(responseWords)
+                    )
 
                 }.addOnFailureListener {
                     Log.d("PostEditor", "failure, msg:${it.message}", it)
@@ -111,12 +136,13 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
             .child(uid)
             .child(fileName)
 
-        ref.putFile(uri).asSuspend()
+        val result = ref.putFile(uri).asSuspend()
 
         val url = ref.downloadUrl.asSuspend()
         imageUrl = url
         Log.d("PostEditorPage", "imageUrl:$imageUrl")
-        loadWordSuggestion(url)
+
+        loadWordSuggestion(uri)
     }
 
     val openImageFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -199,7 +225,6 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
 
 
             }
-            val words = listOf("hogehoge", "piyopiyo", "fugafuga")
             item {
                 Spacer(modifier = Modifier.padding(vertical = 4.dp))
             }
@@ -226,6 +251,8 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
                             Text("関連するワードはありません")
                         }
                     }else{
+                        val words = (wordSuggestionState.content as StateContent.Exist?)?.rawContent
+                            ?: emptyList()
                         items(words.size) { index ->
                             Card(
                                 backgroundColor = if (index == selectedWordItemIndex) {
@@ -253,4 +280,28 @@ fun PostEditor(navController: NavController, repositoryFactory: RepositoryFactor
 
         }
     }
+}
+
+private fun scaleBitmapDown(bitmap: Bitmap, maxDimension: Int): Bitmap {
+    val originalWidth = bitmap.width
+    val originalHeight = bitmap.height
+    var resizedWidth = maxDimension
+    var resizedHeight = maxDimension
+    when {
+        originalHeight > originalWidth -> {
+            resizedHeight = maxDimension
+            resizedWidth =
+                (resizedHeight * originalWidth.toFloat() / originalHeight.toFloat()).toInt()
+        }
+        originalWidth > originalHeight -> {
+            resizedWidth = maxDimension
+            resizedHeight =
+                (resizedWidth * originalHeight.toFloat() / originalWidth.toFloat()).toInt()
+        }
+        originalHeight == originalWidth -> {
+            resizedHeight = maxDimension
+            resizedWidth = maxDimension
+        }
+    }
+    return Bitmap.createScaledBitmap(bitmap, resizedWidth, resizedHeight, false)
 }

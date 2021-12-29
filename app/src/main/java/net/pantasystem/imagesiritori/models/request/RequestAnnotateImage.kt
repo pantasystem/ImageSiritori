@@ -11,7 +11,8 @@ data class RequestAnnotateImage (
 ) {
     @Serializable
     data class Image(
-        val source: ImageSource
+        val source: ImageSource?,
+        val content: String?,
     )
     @Serializable
     data class ImageSource(val gcsImageUri: String)
