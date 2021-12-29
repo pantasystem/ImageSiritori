@@ -10,14 +10,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import net.pantasystem.imagesiritori.asFlow
 import net.pantasystem.imagesiritori.asSuspend
 import net.pantasystem.imagesiritori.models.Account
@@ -33,6 +36,9 @@ import net.pantasystem.imagesiritori.ui.components.PostCard
 @Composable
 fun RoomPage(navController: NavController, roomId: String) {
 
+    val coroutineScope = rememberCoroutineScope()
+
+    val uid = FirebaseAuth.getInstance().uid!!
     val roomRef = Firebase.firestore
         .collection("rooms")
         .document(roomId)
@@ -77,15 +83,40 @@ fun RoomPage(navController: NavController, roomId: String) {
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                text = {
-                    Text("回答する")
-                },
-                icon = {
-                    Icon(Icons.Default.Add, contentDescription = "Add Answer")
-                },
-                onClick = { /*TODO*/ }
-            )
+            if(room.value?.accounts?.any { it.id == uid } == true) {
+                ExtendedFloatingActionButton(
+                    text = {
+                        Text("回答する")
+                    },
+                    icon = {
+                        Icon(Icons.Default.Add, contentDescription = "Add Answer")
+                    },
+                    onClick = {
+                        navController.navigate("rooms/${roomId}/posts/create")
+                    }
+                )
+            }else{
+                ExtendedFloatingActionButton(
+                    text = {
+                        Text("参加する")
+                    },
+
+                    onClick = {
+                        val accountRef = Firebase.firestore
+                            .collection("accounts")
+                            .document(uid)
+                        coroutineScope.launch {
+                            roomRef.collection("members")
+                                .document(uid)
+                                .set(mapOf(
+                                    "account" to accountRef
+                                ))
+                                .asSuspend()
+                        }
+                    }
+                )
+            }
+
         }
     ) {
         if(room.value == null || posts.value == null) {
@@ -118,7 +149,8 @@ fun RoomContent(room: Room, posts: List<Post>) {
 
     Row {
         LazyColumn(
-            Modifier.width(72.dp)
+            Modifier
+                .width(72.dp)
                 .fillMaxHeight()
         ) {
             items(members.size) { index ->

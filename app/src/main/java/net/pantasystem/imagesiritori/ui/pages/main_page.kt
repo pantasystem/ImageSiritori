@@ -72,7 +72,6 @@ fun MainPage() {
                     route = "rooms/{roomId}/posts/create",
                     arguments = listOf(
                         navArgument("roomId") { type = NavType.StringType },
-                        navArgument("postId") { type = NavType.StringType }
                     )
                 ) {
                     PostEditor(
